@@ -1,7 +1,10 @@
 #include <D3d_matrix.h>
 #include <FPT.h>
 
-//UNFINISHED - trying to add clipping functionality
+//This version has clipping
+//compile program with "acom -I . D3d_matrixS.c xyzreader4.c"
+//use arrow keys, x, y, z, i and o to manipulate object
+//use h and j to move hither plane forward and back
 
 typedef
 struct {
@@ -44,20 +47,150 @@ double specular;
 
 double specularpower;
 
+double hither;
+double yon;
 
-int clip(double x[3000], double y[3000], int n, int onum) {
+  int in_out (double p[3], int c, double plane[6][4]) {
+  // return 1 if point P is "IN"
+  // return 0 if point P is "OUT"
+
+    double mx = 0;
+    double my = 0;
+    double mz = (yon + hither) / 2;
+
+    double pointinsert  = plane[c][0] * p[0] + plane[c][1] * p[1] + plane[c][2] * p[2] + plane[c][3];
+    double centerinsert = plane[c][0] * mx   + plane[c][1] * my   + plane[c][2] * mz   + plane[c][3];
+  
+    if (pointinsert > 0 && centerinsert > 0) {
+      return 1;
+    }
+    
+    else if (pointinsert < 0 && centerinsert < 0) {
+      return 1;
+    }
+    else if (pointinsert == 0 && centerinsert == 0) {
+      return 1;
+    }
+    else {
+      // printf("test - c is %d\n", c);
+      return 0;
+    }
+
+}
+
+double clipIntersect(double p0[3], double p1[3], int c, int which, double plane[6][4]) {
+
+//finding t value of system of equations between parametric and plane equations
+
+  int i = 0;
+  double r = 0;
+  double l = 0;
+  double t;
+
+for (i = 0; i < 3; i++) { //add up non-t values
+  r += - (plane[c][i] * p0[i]);
+}
+
+  r += - plane[c][3]; //d value in matrix equation
+
+for (i = 0; i < 3; i++) { //add up t coefficients
+  l += plane[c][i] * (p1[i] - p0[i]);
+}
+
+ t = r / l;
+
+//returns calculation based on 0, 1 or 2 for x, y or z
+return p0[which] + t * (p1[which] - p0[which]);
+
+}
+
+
+int clip(double x[3000], double y[3000], double z[3000], int n, int onum) {
 
  double newx[3000];
-  double newy[3000];
+ double newy[3000];
+ double newz[3000];
 
   double temp1[3]; //holds x y and z for first coordinate in in_out test
   double temp2[3]; //holds x y and z for second coordinate in in_out test
 
-  int k; //x and y counter
-  int i; //newx and newy counter, return as number of sides in clipped polygon
-  int c; //clipping line counter
+  int k; //x y and z counter
+  int i; //newx newy and newz counter, return as number of sides in clipped polygon
+  int c; //clipping plane counter
 
+  
+    double plane[6][4] = {
+    { 0, 1, -tan(M_PI/9), 0 } , // top
+    { 0, -1, -tan(M_PI/9), 0 } , // bottom
+    { 1, 0, tan(M_PI/9), 0 } , // right
+    { -1, 0, tan(M_PI/9), 0 } , // left
+    { 0, 0, 1, -yon } , // yon
+    { 0, 0, 1, -hither } //hither
+    } ;    
 
+  for (c = 0; c < 6; c++) { //each plane
+
+    i = 0 ;
+    for (k = 0; k < n; k++) { //each point in the polygon
+      int kn = (k+1) % n;
+
+      temp1[0] = x[k];
+      temp1[1] = y[k];
+      temp1[2] = z[k];
+      
+      temp2[0] = x[kn];
+      temp2[1] = y[kn];
+      temp2[2] = z[kn];
+
+      if (in_out(temp1, c, plane) == 1 && in_out(temp2, c, plane) == 1) { //in to in: destination
+       newx[i] = x[kn];
+       newy[i] = y[kn];
+       newz[i] = z[kn];
+
+       i++;
+
+     }
+
+      else if (in_out(temp1, c, plane) == 1 && in_out(temp2, c, plane) == 0) { // in to out, intersection
+	      newx[i] = clipIntersect(temp1, temp2, c, 0, plane);
+	      newy[i] = clipIntersect(temp1, temp2, c, 1, plane);
+	      newz[i] = clipIntersect(temp1, temp2, c, 2, plane);
+
+	      
+
+        i++;
+
+      }
+
+      else if (in_out(temp1, c, plane) == 0 && in_out(temp2, c, plane) == 1) { // out to in, intersection, then destination
+	     newx[i] = clipIntersect(temp1, temp2, c, 0, plane);
+	     newx[i + 1] = x[kn];
+
+	     newy[i] = clipIntersect(temp1, temp2, c, 1, plane);
+	     newy[i + 1] = y[kn];
+
+	     newz[i] = clipIntersect(temp1, temp2, c, 2, plane);
+	     newz[i + 1] = z[kn];
+
+	     i = i + 2;
+
+     }
+
+    } // end for k
+
+   for (k = 0; k < i; k++) {
+    x[k] = newx[k];
+    y[k] = newy[k];
+    z[k] = newz[k];
+  }
+
+  n = i;
+
+  } // end for c
+
+  //printf("n is %d\n", n);
+
+return n;
 }
 
 double light_calculate(int onum, int polyindex) {
@@ -72,62 +205,61 @@ double light_calculate(int onum, int polyindex) {
   double Ru[3]; 
 
   double Av[3] = 
-    { xp[onum][con[onum][polyindex][1]] - xp[onum][con[onum][polyindex][0]], 
-		  yp[onum][con[onum][polyindex][1]] - yp[onum][con[onum][polyindex][0]], 
-		  zp[onum][con[onum][polyindex][1]] - zp[onum][con[onum][polyindex][0]] } ;
+  { xp[onum][con[onum][polyindex][1]] - xp[onum][con[onum][polyindex][0]], 
+    yp[onum][con[onum][polyindex][1]] - yp[onum][con[onum][polyindex][0]], 
+    zp[onum][con[onum][polyindex][1]] - zp[onum][con[onum][polyindex][0]] } ;
 
-  double Bv[3] = 
+    double Bv[3] = 
     { xp[onum][con[onum][polyindex][2]] - xp[onum][con[onum][polyindex][0]], 
       yp[onum][con[onum][polyindex][2]] - yp[onum][con[onum][polyindex][0]], 
       zp[onum][con[onum][polyindex][2]] - zp[onum][con[onum][polyindex][0]] } ;
 
-  double Lv[3] = 
-    { l[0] - xp[onum][con[onum][polyindex][0]],
-		  l[1] - yp[onum][con[onum][polyindex][0]],
-		  l[2] - zp[onum][con[onum][polyindex][0]] } ;
+      double Lv[3] = 
+      { l[0] - xp[onum][con[onum][polyindex][0]],
+        l[1] - yp[onum][con[onum][polyindex][0]],
+        l[2] - zp[onum][con[onum][polyindex][0]] } ;
 
-  D3d_x_product(Nv, Av, Bv);
+        D3d_x_product(Nv, Av, Bv);
 
-  double Lvlength = D3d_vector_distance(Lv);
-  double Nvlength = D3d_vector_distance(Nv);
+        double Lvlength = D3d_vector_distance(Lv);
+        double Nvlength = D3d_vector_distance(Nv);
 
-  Lu[0] = Lv[0]/Lvlength;
-  Lu[1] = Lv[1]/Lvlength;
-  Lu[2] = Lv[2]/Lvlength;
+        Lu[0] = Lv[0]/Lvlength;
+        Lu[1] = Lv[1]/Lvlength;
+        Lu[2] = Lv[2]/Lvlength;
 
-  Nu[0] = Nv[0]/Nvlength;
-  Nu[1] = Nv[1]/Nvlength;
-  Nu[2] = Nv[2]/Nvlength;
+        Nu[0] = Nv[0]/Nvlength;
+        Nu[1] = Nv[1]/Nvlength;
+        Nu[2] = Nv[2]/Nvlength;
 
-  double anglea = (D3d_dot_product(Nu, Lu));
-  
-  if (anglea < 0) {
-    Nu[0] = -Nu[0];
-    Nu[1] = -Nu[1];
-    Nu[2] = -Nu[2];
-    anglea = (D3d_dot_product(Nu, Lu));
-  }
+        double anglea = (D3d_dot_product(Nu, Lu));
 
-  diffuse = maxdiffuse * anglea;
-  printf("%lf\n", diffuse);
+        if (anglea < 0) {
+          Nu[0] = -Nu[0];
+          Nu[1] = -Nu[1];
+          Nu[2] = -Nu[2];
+          anglea = (D3d_dot_product(Nu, Lu));
+        }
 
-  if (diffuse < 0) {
-    diffuse = 0;
-  } 
+        diffuse = maxdiffuse * anglea;
+
+        if (diffuse < 0) {
+          diffuse = 0;
+        } 
 
 
 ////////SPECULAR////////////////////
 
 double Ev[3] = //eye
-    { 0 - xp[onum][con[onum][polyindex][0]],
-      0 - yp[onum][con[onum][polyindex][0]],
-      0 - zp[onum][con[onum][polyindex][0]] } ;
+{ 0 - xp[onum][con[onum][polyindex][0]],
+  0 - yp[onum][con[onum][polyindex][0]],
+  0 - zp[onum][con[onum][polyindex][0]] } ;
 
 
 double Rv[3] = //reflection from Lu
-    { 2 * anglea * Nu[0] - Lu[0],
-      2 * anglea * Nu[1] - Lu[1],
-      2 * anglea * Nu[2] - Lu[2] } ;
+{ 2 * anglea * Nu[0] - Lu[0],
+  2 * anglea * Nu[1] - Lu[1],
+  2 * anglea * Nu[2] - Lu[2] } ;
 
   double Evlength = D3d_vector_distance(Ev);
   double Rvlength = D3d_vector_distance(Rv);
@@ -143,7 +275,7 @@ double Rv[3] = //reflection from Lu
   double angleb = D3d_dot_product(Eu, Ru);
 
   if (angleb < 0) {
-      specular = 0;
+    specular = 0;
   }
   else {
     specular = (1 - maxdiffuse - ambient) * pow(angleb, specularpower);
@@ -334,6 +466,7 @@ void drawobjects() {
   int i;
   int j;
   int k;
+  int l;
   int onum;
 
   double intensity;
@@ -348,34 +481,46 @@ void drawobjects() {
   G_rgb(0, 0, 0);
   G_fill_rectangle(0, 0, 1000, 1000);
 
+  double cxp[3000], cyp[3000], czp[3000];
+
+  int psides;
+
+  int q;
+
   for (j = allpolysN; j >= 0; j--) { //BIG LOOP FOR EACH POLYGON
-    
+
     onum = allpolys[j].objnum;
     i = allpolys[j].polynum;
 
-    for (k = 0; k < psize[onum][i]; k++) {
-      thisx[k] = (300 / tan(M_PI/9)) * ( xp[onum][con[onum][i][k]] / zp[onum][con[onum][i][k]] ) + 300;
-      thisy[k] = (300 / tan(M_PI/9)) * ( yp[onum][con[onum][i][k]] / zp[onum][con[onum][i][k]] ) + 300; 
+    for (l = 0; l < psize[onum][i]; l++) { //copy array for polygon
+      cxp[l] = xp[onum][con[onum][i][l]];
+      cyp[l] = yp[onum][con[onum][i][l]];
+      czp[l] = zp[onum][con[onum][i][l]];
     }
 
-    psides = clip(thisx, thisy, psize[onum][i], onum);
+    psides = clip(cxp, cyp, czp, psize[onum][i], onum);
+
+    for (k = 0; k < psides; k++) { //project 2D onto 3D
+      thisx[k] = (300 / tan(M_PI/9)) * ( cxp[k] / czp[k] ) + 300;
+      thisy[k] = (300 / tan(M_PI/9)) * ( cyp[k] / czp[k] ) + 300; 
+    }
 
     intensity = light_calculate(onum, i);
-    //printf("intensity is %lf\n", intensity);
     intensityratio = intensity / bigK;
 
     G_rgb(intensityratio * inherent[0], intensityratio * inherent[1], intensityratio * inherent[2]);
-    //^ ^ this will need to access red, green and blue arrays that are set by another method
     G_fill_polygon(thisx, thisy, psides);
-    G_rgb(0,0,0);
-    G_polygon(thisx, thisy, psides);
-				  
+
+    //printf("polygon number %d has %d sides\n", j, psides);
+    //G_rgb(0,0,0);
+    //G_polygon(thisx, thisy, psides);
+
   }
 }
-    
+
 
 void update_average(int onum) {
-  
+
   int i;
   double tempx = 0;
   double tempy = 0; 
@@ -441,14 +586,17 @@ int main(int argc, char **argv) {
   
   ambient = .2; 
   maxdiffuse = .5; 
-  specularpower = 50; 
+  specularpower = 100; 
   l[0] = 100 ; 
-  l[1] = 150 ; 
+  l[1] = 100 ; 
   l[2] = -10 ; 
 
   inherent[0] = 0;
   inherent[1] = 1;
   inherent[2] = 0; 
+
+  hither = .1;
+  yon = 50;
 
   ///User Inputs:///
 
@@ -460,6 +608,12 @@ int main(int argc, char **argv) {
 
   // printf("Please enter the rgb information for inherent color\n");
   // scanf("%lf, %lf, %lf", &inherent[0], &inherent[1], &inherent[2]);
+
+  // printf("Please enter the initial hither z-value\n");
+  // scanf("%lf," &hither);
+
+  //printf("Please enter the yon z-value\n");
+  //scanf("%lf," &yon);
 
   while (key != 'q') {
 
@@ -507,12 +661,20 @@ int main(int argc, char **argv) {
       D3d_translate(m, minv, xm[onum], ym[onum], zm[onum]);
     }
 
+    else if (key == 'h') {//HITHER FORWARD
+      hither = hither + .7;
+    }
+
+    else if (key == 'j') {//HITHER BACKWARD
+      hither = hither - .7;
+    }
+
     else if (key == 'i') {//ZOOM IN
       D3d_translate(m, minv, 0, 0, -.7);
-       }
+    }
     else if (key == 'o') {//ZOOM OUT
       D3d_translate(m, minv, 0, 0, .7);
-     } 
+    } 
 
     if (key > 47 && key < 58) {
       onum = key - 48;
